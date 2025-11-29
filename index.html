@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UIFT Entropic Universe Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js Core -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Three.js Post-Processing for Bloom/Glow -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+  <!-- Orbit Controls -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #050505;
+      font-family: 'Inter', sans-serif;
+    }
+
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .pointer-events-auto {
+      pointer-events: auto;
+    }
+
+    /* Custom Range Slider */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 16px;
+      width: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+      margin-top: -6px;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+    }
+
+    input[type=range]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 4px;
+      cursor: pointer;
+      background: #4b5563;
+      border-radius: 2px;
+    }
+
+    /* Glassmorphism */
+    .glass {
+      background: rgba(10, 10, 15, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- 3D Container -->
+  <div id="canvas-container" class="w-full h-screen block z-0"></div>
+
+  <!-- UI Overlay -->
+  <div id="ui-layer" class="flex flex-col justify-between p-6">
+
+    <!-- Top Header & Stats -->
+    <div class="flex justify-between items-start pointer-events-auto">
+      <div class="glass rounded-xl p-4 text-white max-w-md shadow-lg">
+        <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-purple-500">
+          UIFT Entropic Simulator
+        </h1>
+        <p class="text-xs text-gray-400 mt-1">
+          Visualizing Gravity as Information Density & Expansion as Entropic Pressure.
+        </p>
+        <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm font-mono text-cyan-300">
+          <div id="stat-bodies">Bodies: 0</div>
+          <div id="stat-fps">FPS: 60</div>
+          <div id="stat-time">T: 0.00 y</div>
+          <div id="stat-entropy" class="text-red-400">Λ-Expansion: Stable</div>
+        </div>
+      </div>
+
+      <div class="glass rounded-xl p-2 flex space-x-2 shadow-lg">
+        <button onclick="resetSim('solar')"
+          class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold transition shadow-indigo-500/50 shadow-md">
+          Reset: Solar System
+        </button>
+        <button onclick="resetSim('random')"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-bold transition">
+          Reset: Chaos
+        </button>
+        <button onclick="clearSim()"
+          class="px-4 py-2 bg-red-900/80 hover:bg-red-800 text-white rounded-lg text-sm font-bold transition">
+          Clear All
+        </button>
+      </div>
+    </div>
+
+    <!-- Interaction Hint -->
+    <div id="hint-box"
+      class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-0 transition-opacity duration-500 text-center">
+      <div class="text-white text-lg font-bold shadow-black drop-shadow-md">Click & Drag to Slingshot</div>
+      <div class="text-cyan-300 text-sm">Trajectory Locked</div>
+    </div>
+
+    <!-- Bottom Controls -->
+    <div class="flex justify-between items-end pointer-events-auto">
+
+      <!-- Physics Parameters -->
+      <div class="glass rounded-xl p-4 w-80 text-white shadow-lg">
+        <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3 border-b border-gray-700 pb-1">
+          Universal Constants</h3>
+
+        <!-- G Constant -->
+        <div class="mb-4">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-cyan-400">Gravitational Constant (G)</span>
+            <span id="val-g">1.0</span>
+          </div>
+          <input type="range" id="input-g" min="0.1" max="5.0" step="0.1" value="1.0">
+        </div>
+
+        <!-- Dark Energy (Entropic Pressure) -->
+        <div class="mb-4">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-red-400">Entropic Expansion (Λ)</span>
+            <span id="val-lambda">0.0</span>
+          </div>
+          <input type="range" id="input-lambda" min="0" max="0.0005" step="0.00001" value="0.0">
+          <p class="text-[10px] text-gray-500 mt-1">Increases global dispersion (Heat Death).</p>
+        </div>
+
+        <!-- Time Step -->
+        <div>
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-purple-400">Simulation Speed</span>
+            <span id="val-speed">1.0</span>
+          </div>
+          <input type="range" id="input-speed" min="0" max="3.0" step="0.1" value="1.0">
+        </div>
+      </div>
+
+      <!-- Creation Tool -->
+      <div class="glass rounded-xl p-4 w-64 text-white ml-4 shadow-lg">
+        <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3 border-b border-gray-700 pb-1">Body
+          Creator</h3>
+
+        <div class="mb-3">
+          <label class="text-xs text-gray-400 block mb-1">Mass Class</label>
+          <select id="create-type"
+            class="w-full bg-gray-800 border border-gray-600 rounded p-1 text-sm focus:outline-none focus:border-cyan-500">
+            <option value="star">Star (High Density)</option>
+            <option value="gas_giant">Gas Giant</option>
+            <option value="planet" selected>Rocky Planet</option>
+            <option value="moon">Moon / Asteroid</option>
+            <option value="black_hole">Entropic Singularity</option>
+          </select>
+        </div>
+
+        <div class="flex items-center text-xs text-gray-400">
+          <div class="w-3 h-3 bg-cyan-500 rounded-full mr-2 animate-pulse"></div>
+          <span>Drag on space to launch</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- CONFIGURATION & STATE ---
+    const CONFIG = {
+      G: 1.0,                // Local Gravity
+      LAMBDA: 0.0,           // Global Entropic Expansion
+      TIME_SCALE: 1.0,
+      TRAIL_LENGTH: 150,
+      MAX_BODIES: 300
+    };
+
+    const PRESETS = {
+      star: { mass: 1000, radius: 8, color: 0xffdd44, glow: 0xffaa00 },
+      gas_giant: { mass: 80, radius: 4, color: 0xd8a676, glow: 0xaa8866 },
+      planet: { mass: 10, radius: 1.5, color: 0x44aadd, glow: 0x0055aa },
+      moon: { mass: 0.5, radius: 0.6, color: 0x888888, glow: 0x555555 },
+      black_hole: { mass: 5000, radius: 2, color: 0x000000, glow: 0x6600aa } // Purple accretion disk glow
+    };
+
+    let scene, camera, renderer, composer, controls;
+    let bodies = []; // { mesh, mass, velocity(Vec3), acceleration(Vec3), trail(Line) }
+    let raycaster, mouse, dragStart, isDragging = false;
+    let predictionLine;
+
+    // --- INITIALIZATION ---
+    function init() {
+      // 1. Scene Setup
+      scene = new THREE.Scene();
+
+      // 2. Camera
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+      camera.position.set(0, 150, 300);
+
+      // 3. Renderer
+      const container = document.getElementById('canvas-container');
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.toneMapping = THREE.ReinhardToneMapping;
+      container.appendChild(renderer.domElement);
+
+      // 4. Post-Processing (Bloom)
+      const renderScene = new THREE.RenderPass(scene, camera);
+
+      const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+      bloomPass.threshold = 0;
+      bloomPass.strength = 1.5; // Intensity of glow
+      bloomPass.radius = 0.5;
+
+      composer = new THREE.EffectComposer(renderer);
+      composer.addPass(renderScene);
+      composer.addPass(bloomPass);
+
+      // 5. Controls
+      controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.maxDistance = 2000;
+
+      // 6. Lighting & Environment
+      const ambientLight = new THREE.AmbientLight(0x111111);
+      scene.add(ambientLight);
+
+      // Starfield Background
+      addStarfield();
+
+      // 7. Interaction Tools
+      raycaster = new THREE.Raycaster();
+      mouse = new THREE.Vector2();
+
+      // Prediction Line for Slingshot
+      const lineGeo = new THREE.BufferGeometry();
+      // FIX: Initialize position attribute with 6 values (2 points * 3 coordinates) to prevent 'undefined' access errors
+      const linePos = new Float32Array(6);
+      lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
+
+      const lineMat = new THREE.LineDashedMaterial({ color: 0x00ffff, dashSize: 2, gapSize: 1, opacity: 0.5, transparent: true });
+      predictionLine = new THREE.Line(lineGeo, lineMat);
+      scene.add(predictionLine);
+      predictionLine.visible = false;
+
+      // Event Listeners
+      window.addEventListener('resize', onWindowResize);
+      window.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+
+      setupUI();
+
+      // Start with Solar System
+      resetSim('solar');
+
+      animate();
+    }
+
+    // --- PHYSICS ENGINE (Verlet Integration) ---
+    function updatePhysics() {
+      const dt = 0.1 * CONFIG.TIME_SCALE;
+      if (dt === 0) return;
+
+      // 1. First Verlet Step: r(t+dt) = r(t) + v(t)dt + 0.5*a(t)dt^2
+      //    And v(t+0.5dt) = v(t) + 0.5*a(t)dt
+      for (const body of bodies) {
+        // Calculate velocity at half-step
+        body.velocity.addScaledVector(body.acceleration, 0.5 * dt);
+        // Update position
+        body.mesh.position.addScaledVector(body.velocity, dt);
+      }
+
+      // 2. Calculate Forces & New Acceleration a(t+dt)
+      for (const body of bodies) {
+        // Reset acceleration
+        body.acceleration.set(0, 0, 0);
+      }
+
+      // N-Body Interaction
+      for (let i = 0; i < bodies.length; i++) {
+        const b1 = bodies[i];
+
+        // Global Entropic Expansion (Dark Energy)
+        // Repulsive force proportional to distance from origin (or relative to space metric)
+        // Here we model it as a generic Hubble flow pressure on the position
+        if (CONFIG.LAMBDA > 0) {
+          const distFromCenter = b1.mesh.position.length();
+          if (distFromCenter > 10) {
+            const expansionForce = b1.mesh.position.clone().normalize().multiplyScalar(CONFIG.LAMBDA * distFromCenter * 0.01);
+            b1.acceleration.add(expansionForce);
+          }
+        }
+
+        for (let j = i + 1; j < bodies.length; j++) {
+          const b2 = bodies[j];
+
+          const distVec = new THREE.Vector3().subVectors(b2.mesh.position, b1.mesh.position);
+          let distSq = distVec.lengthSq();
+          let dist = Math.sqrt(distSq);
+
+          // Collision / Merging (Simple removal of smaller body)
+          if (dist < (b1.radius + b2.radius) * 0.8) {
+            handleCollision(b1, b2, i, j);
+            // Adjust indices after removal
+            j--;
+            continue;
+          }
+
+          // Softening parameter to prevent infinity
+          distSq += 1.0;
+
+          // F = G * m1 * m2 / r^2
+          // a1 = F / m1 = G * m2 / r^2
+          const forceMag = (CONFIG.G * b1.mass * b2.mass) / distSq;
+          const fDir = distVec.normalize();
+
+          const fVector = fDir.multiplyScalar(forceMag);
+
+          // Apply acceleration
+          b1.acceleration.add(fVector.clone().multiplyScalar(1 / b1.mass)); // a1 += F/m1
+          b2.acceleration.add(fVector.clone().multiplyScalar(-1 / b2.mass)); // a2 -= F/m2
+        }
+      }
+
+      // 3. Second Verlet Step: v(t+dt) = v(t+0.5dt) + 0.5*a(t+dt)dt
+      for (const body of bodies) {
+        body.velocity.addScaledVector(body.acceleration, 0.5 * dt);
+        updateTrail(body);
+
+        // Dynamic Emissive Color (Visualizing "Entropic Stress")
+        // High acceleration = High energy/interaction
+        const speed = body.velocity.length();
+        const accelMag = body.acceleration.length();
+
+        const stress = Math.min(accelMag * 50, 1);
+        const baseColor = new THREE.Color(body.baseColor);
+        const stressColor = new THREE.Color(0xff0000); // Red shift for stress
+
+        // Pulse effect for high stress
+        const pulse = Math.sin(time * 20.0) * 0.5 + 0.5;
+        const finalColor = baseColor.clone().lerp(stressColor, stress * 0.8 + (stress > 0.5 ? pulse * 0.2 : 0));
+
+        if (!body.mesh.userData.isBlackHole) {
+          body.mesh.material.emissive.copy(finalColor);
+        }
+
+        // Update Bow Shock (Entropic Resistance)
+        if (speed > 0.1) {
+          body.shock.visible = true;
+          body.shock.lookAt(body.mesh.position.clone().add(body.velocity));
+
+          // Opacity based on speed (resistance)
+          const resistance = Math.min(speed * 0.1, 0.8);
+          body.shock.material.opacity = resistance;
+
+          // Color shift for shock
+          body.shock.material.color.setHSL(0.6 - (resistance * 0.6), 1.0, 0.5); // Blue -> Red
+        } else {
+          body.shock.visible = false;
+        }
+      }
+    }
+
+    function handleCollision(b1, b2, i1, i2) {
+      // Identify larger body
+      let survivor, victim, idxToRemove;
+      if (b1.mass >= b2.mass) { survivor = b1; victim = b2; idxToRemove = i2; }
+      else { survivor = b2; victim = b1; idxToRemove = i1; }
+
+      // Conservation of Momentum: v_new = (m1v1 + m2v2) / (m1+m2)
+      const momentum1 = survivor.velocity.clone().multiplyScalar(survivor.mass);
+      const momentum2 = victim.velocity.clone().multiplyScalar(victim.mass);
+      const newVel = momentum1.add(momentum2).divideScalar(survivor.mass + victim.mass);
+
+      survivor.velocity.copy(newVel);
+      survivor.mass += victim.mass;
+      // Increase radius slightly (Volume ~ Mass, r ~ m^(1/3))
+      const newRadius = Math.pow(Math.pow(survivor.radius, 3) + Math.pow(victim.radius, 3), 1 / 3);
+      survivor.radius = newRadius;
+
+      // Update Mesh Scale
+      const scaleFactor = newRadius / (survivor.mesh.geometry.parameters.radius || survivor.radius);
+      // Recreating geometry is cleaner for scale but expensive, scaling mesh is faster
+      survivor.mesh.scale.setScalar(scaleFactor);
+
+      // Visual Explosion Effect (Simple flash)
+      const flash = new THREE.PointLight(0xffffff, 5, 50);
+      flash.position.copy(survivor.mesh.position);
+      scene.add(flash);
+      setTimeout(() => scene.remove(flash), 100);
+
+      // Remove victim
+      scene.remove(victim.mesh);
+      scene.remove(victim.trail);
+      bodies.splice(idxToRemove, 1);
+    }
+
+    function updateTrail(body) {
+      const positions = body.trail.geometry.attributes.position.array;
+      // Shift positions back
+      for (let i = 0; i < (CONFIG.TRAIL_LENGTH - 1) * 3; i++) {
+        positions[i] = positions[i + 3];
+      }
+      // Add current position at end
+      const idx = (CONFIG.TRAIL_LENGTH - 1) * 3;
+      positions[idx] = body.mesh.position.x;
+      positions[idx + 1] = body.mesh.position.y;
+      positions[idx + 2] = body.mesh.position.z;
+
+      body.trail.geometry.attributes.position.needsUpdate = true;
+      // Keep trail attached visually
+      body.trail.position.set(0, 0, 0);
+    }
+
+    // --- SHADERS ---
+    const ACCRETION_VERTEX_SHADER = `
+      varying vec2 vUv;
+      varying vec3 vPos;
+      void main() {
+        vUv = uv;
+        vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+
+    const ACCRETION_FRAGMENT_SHADER = `
+      uniform float time;
+      uniform vec3 color;
+      varying vec2 vUv;
+      varying vec3 vPos;
+
+      // Simple noise function
+      float random(vec2 st) {
+        return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+      }
+
+      float noise(vec2 st) {
+        vec2 i = floor(st);
+        vec2 f = fract(st);
+        float a = random(i);
+        float b = random(i + vec2(1.0, 0.0));
+        float c = random(i + vec2(0.0, 1.0));
+        float d = random(i + vec2(1.0, 1.0));
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+      }
+
+      void main() {
+        // Radial gradient for disk
+        float r = length(vPos.xy) / 5.0; // Normalized radius approx
+        if (r < 0.4 || r > 1.0) discard; // Ring shape
+
+        // Swirling noise
+        float angle = atan(vPos.y, vPos.x);
+        float swirl = noise(vec2(r * 10.0 - time * 2.0, angle * 5.0 + time));
+        
+        // Digital/Data look
+        float grid = step(0.9, fract(angle * 20.0 + time)) * 0.5;
+        
+        float intensity = (1.0 - abs(r - 0.7) * 3.0) * (swirl + grid + 0.5);
+        
+        gl_FragColor = vec4(color * intensity * 2.0, 1.0);
+      }
+    `;
+
+    // --- OBJECT CREATION ---
+    function createBody(type, position, velocity) {
+      const preset = PRESETS[type];
+      let mesh;
+
+      if (type === 'black_hole') {
+        // 1. Event Horizon (Pure Black, "Informational Equilibrium")
+        const geometry = new THREE.SphereGeometry(preset.radius, 32, 32);
+        const material = new THREE.MeshBasicMaterial({ color: 0x000000 }); // No light interaction
+        mesh = new THREE.Mesh(geometry, material);
+
+        // 2. Accretion Disk ("Maximal Information Density Flow")
+        const diskGeo = new THREE.PlaneGeometry(preset.radius * 6, preset.radius * 6);
+        const diskMat = new THREE.ShaderMaterial({
+          uniforms: {
+            time: { value: 0 },
+            color: { value: new THREE.Color(preset.glow) }
+          },
+          vertexShader: ACCRETION_VERTEX_SHADER,
+          fragmentShader: ACCRETION_FRAGMENT_SHADER,
+          side: THREE.DoubleSide,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        });
+        const disk = new THREE.Mesh(diskGeo, diskMat);
+        disk.rotation.x = Math.PI / 2; // Flat on orbital plane
+        mesh.add(disk);
+        mesh.userData.isBlackHole = true;
+        mesh.userData.disk = disk;
+
+      } else {
+        // Standard Body
+        const geometry = new THREE.SphereGeometry(preset.radius, 32, 32);
+        const material = new THREE.MeshStandardMaterial({
+          color: preset.color,
+          emissive: preset.glow,
+          emissiveIntensity: type === 'star' ? 2.0 : 0.2,
+          roughness: 0.4,
+          metalness: 0.1
+        });
+        mesh = new THREE.Mesh(geometry, material);
+
+        if (type === 'star') {
+          const light = new THREE.PointLight(preset.color, 2, 1000);
+          mesh.add(light);
+        }
+      }
+
+      mesh.position.copy(position);
+
+      // Trail
+      const trailGeo = new THREE.BufferGeometry();
+      const trailPos = new Float32Array(CONFIG.TRAIL_LENGTH * 3).fill(position.x);
+      // Fill initial trail with current pos
+      for (let i = 0; i < CONFIG.TRAIL_LENGTH * 3; i += 3) {
+        trailPos[i] = position.x; trailPos[i + 1] = position.y; trailPos[i + 2] = position.z;
+      }
+      trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+      const trailMat = new THREE.LineBasicMaterial({
+        color: preset.color,
+        transparent: true,
+        opacity: 0.3
+      });
+      const trail = new THREE.Line(trailGeo, trailMat);
+
+      // Bow Shock (Entropic Resistance Visual)
+      const shockGeo = new THREE.ConeGeometry(preset.radius * 1.5, preset.radius * 2, 16, 1, true);
+      const shockMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const shock = new THREE.Mesh(shockGeo, shockMat);
+      // Orient cone so tip points forward (default cone points up Y)
+      shock.geometry.rotateX(Math.PI / 2);
+      shock.visible = false;
+      mesh.add(shock);
+
+      scene.add(mesh);
+      scene.add(trail);
+
+      const body = {
+        mesh: mesh,
+        trail: trail,
+        shock: shock, // Reference to shock
+        mass: preset.mass,
+        radius: preset.radius,
+        velocity: velocity.clone(),
+        acceleration: new THREE.Vector3(),
+        baseColor: preset.glow
+      };
+
+      bodies.push(body);
+      return body;
+    }
+
+    // --- INPUT & INTERACTION ---
+    function getMousePos(e) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      return {
+        x: ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        y: -((e.clientY - rect.top) / rect.height) * 2 + 1
+      };
+    }
+
+    function getPlaneIntersection(screenX, screenY) {
+      mouse.set(screenX, screenY);
+      raycaster.setFromCamera(mouse, camera);
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // XZ Plane
+      const target = new THREE.Vector3();
+      raycaster.ray.intersectPlane(plane, target);
+      return target || new THREE.Vector3(0, 0, 0);
+    }
+
+    function onMouseDown(e) {
+      if (e.target.closest('#ui-layer button, #ui-layer input, #ui-layer select')) return;
+      const m = getMousePos(e);
+      const pos = getPlaneIntersection(m.x, m.y);
+
+      if (pos) {
+        isDragging = true;
+        dragStart = pos;
+        controls.enabled = false; // Disable camera rotation while dragging
+        predictionLine.visible = true;
+
+        // Visual hint
+        document.getElementById('hint-box').style.opacity = 1;
+      }
+    }
+
+    function onMouseMove(e) {
+      if (!isDragging) return;
+      const m = getMousePos(e);
+      const dragCurrent = getPlaneIntersection(m.x, m.y);
+
+      if (dragCurrent && dragStart) {
+        // Update prediction line
+        const positions = predictionLine.geometry.attributes.position.array;
+        positions[0] = dragStart.x; positions[1] = dragStart.y; positions[2] = dragStart.z;
+        positions[3] = dragCurrent.x; positions[4] = dragCurrent.y; positions[5] = dragCurrent.z;
+        predictionLine.geometry.attributes.position.needsUpdate = true;
+        predictionLine.computeLineDistances(); // Needed for dashed line
+      }
+    }
+
+    function onMouseUp(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      controls.enabled = true;
+      predictionLine.visible = false;
+      document.getElementById('hint-box').style.opacity = 0;
+
+      const m = getMousePos(e);
+      const dragEnd = getPlaneIntersection(m.x, m.y);
+
+      if (dragStart && dragEnd) {
+        const type = document.getElementById('create-type').value;
+
+        // Velocity is opposite to drag direction (Slingshot mechanic)
+        const velocity = new THREE.Vector3()
+          .subVectors(dragStart, dragEnd)
+          .multiplyScalar(0.05); // Power multiplier
+
+        createBody(type, dragStart, velocity);
+      }
+    }
+
+    // --- SCENE GENERATORS ---
+    function clearSim() {
+      bodies.forEach(b => { scene.remove(b.mesh); scene.remove(b.trail); });
+      bodies = [];
+    }
+
+    function resetSim(mode) {
+      clearSim();
+
+      if (mode === 'solar') {
+        // 1. Sun
+        createBody('star', new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0));
+
+        // 2. Planets (Approximate stable orbits)
+        // V_orbit = sqrt(G * M_sun / r)
+        const M_sun = PRESETS.star.mass;
+
+        // Inner Rocky
+        let r = 40;
+        let v = Math.sqrt(CONFIG.G * M_sun / r);
+        createBody('planet', new THREE.Vector3(r, 0, 0), new THREE.Vector3(0, 0, v));
+
+        // Gas Giant
+        r = 90;
+        v = Math.sqrt(CONFIG.G * M_sun / r);
+        createBody('gas_giant', new THREE.Vector3(-r, 0, 0), new THREE.Vector3(0, 0, -v));
+
+        // Moon for Gas Giant (Manual placement relative to giant)
+        // Giant is at (-90, 0, 0) moving (0, 0, -v_giant)
+        const r_moon = 8;
+        const v_giant = v;
+        // V_moon_local = sqrt(G * M_giant / r_moon)
+        const v_moon_local = Math.sqrt(CONFIG.G * PRESETS.gas_giant.mass / r_moon);
+        createBody('moon', new THREE.Vector3(-r + r_moon, 0, 0), new THREE.Vector3(0, 0, -v_giant + v_moon_local));
+
+        // Outer Dwarf
+        r = 160;
+        v = Math.sqrt(CONFIG.G * M_sun / r);
+        createBody('moon', new THREE.Vector3(0, 0, r), new THREE.Vector3(-v, 0, 0));
+
+      } else if (mode === 'random') {
+        // Chaos cluster
+        for (let i = 0; i < 20; i++) {
+          const pos = new THREE.Vector3(
+            (Math.random() - 0.5) * 200,
+            (Math.random() - 0.5) * 20,
+            (Math.random() - 0.5) * 200
+          );
+          const vel = new THREE.Vector3(
+            (Math.random() - 0.5) * 0.5,
+            (Math.random() - 0.5) * 0.5,
+            (Math.random() - 0.5) * 0.5
+          );
+          const types = ['planet', 'moon', 'gas_giant'];
+          createBody(types[Math.floor(Math.random() * types.length)], pos, vel);
+        }
+        createBody('star', new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 0));
+      }
+    }
+
+    function addStarfield() {
+      const starsGeo = new THREE.BufferGeometry();
+      const count = 5000;
+      const pos = new Float32Array(count * 3);
+      for (let i = 0; i < count * 3; i++) {
+        pos[i] = (Math.random() - 0.5) * 2000;
+      }
+      starsGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const starsMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1, transparent: true, opacity: 0.8 });
+      const starSystem = new THREE.Points(starsGeo, starsMat);
+      scene.add(starSystem);
+    }
+
+    // --- UI HANDLERS ---
+    function setupUI() {
+      const gSlider = document.getElementById('input-g');
+      const lSlider = document.getElementById('input-lambda');
+      const sSlider = document.getElementById('input-speed');
+
+      gSlider.addEventListener('input', (e) => {
+        CONFIG.G = parseFloat(e.target.value);
+        document.getElementById('val-g').innerText = CONFIG.G.toFixed(1);
+      });
+
+      lSlider.addEventListener('input', (e) => {
+        CONFIG.LAMBDA = parseFloat(e.target.value);
+        document.getElementById('val-lambda').innerText = CONFIG.LAMBDA.toFixed(5);
+
+        const entLabel = document.getElementById('stat-entropy');
+        if (CONFIG.LAMBDA > 0.0002) {
+          entLabel.innerText = "Λ-Expansion: CRITICAL";
+          entLabel.className = "text-red-600 font-bold blink";
+        } else if (CONFIG.LAMBDA > 0) {
+          entLabel.innerText = "Λ-Expansion: ACTIVE";
+          entLabel.className = "text-orange-400";
+        } else {
+          entLabel.innerText = "Λ-Expansion: STABLE";
+          entLabel.className = "text-green-400";
+        }
+      });
+
+      sSlider.addEventListener('input', (e) => {
+        CONFIG.TIME_SCALE = parseFloat(e.target.value);
+        document.getElementById('val-speed').innerText = CONFIG.TIME_SCALE.toFixed(1);
+      });
+    }
+
+    function updateStats() {
+      document.getElementById('stat-bodies').innerText = `Bodies: ${bodies.length}`;
+    }
+
+    let metricGrid, vacuumParticles;
+
+    function createMetricGrid() {
+      // 1. Information Field Grid (The "Fabric")
+      const gridGeo = new THREE.BufferGeometry();
+      const gridSize = 2000;
+      const divisions = 40;
+      const step = gridSize / divisions;
+      const points = [];
+
+      for (let i = -gridSize / 2; i <= gridSize / 2; i += step) {
+        points.push(-gridSize / 2, 0, i);
+        points.push(gridSize / 2, 0, i);
+        points.push(i, 0, -gridSize / 2);
+        points.push(i, 0, gridSize / 2);
+      }
+
+      gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+      const gridMat = new THREE.LineBasicMaterial({ color: 0x333344, transparent: true, opacity: 0.15 });
+      metricGrid = new THREE.LineSegments(gridGeo, gridMat);
+      scene.add(metricGrid);
+
+      // 2. Vacuum Potential Particles (Dark Energy Depletion)
+      const vacGeo = new THREE.BufferGeometry();
+      const vacCount = 1000;
+      const vacPos = new Float32Array(vacCount * 3);
+      for (let i = 0; i < vacCount * 3; i++) {
+        vacPos[i] = (Math.random() - 0.5) * 2000;
+      }
+      vacGeo.setAttribute('position', new THREE.BufferAttribute(vacPos, 3));
+      const vacMat = new THREE.PointsMaterial({
+        color: 0x444455,
+        size: 2,
+        transparent: true,
+        opacity: 0.3,
+        blending: THREE.AdditiveBlending
+      });
+      vacuumParticles = new THREE.Points(vacGeo, vacMat);
+      scene.add(vacuumParticles);
+    }
+
+    // --- MAIN LOOP ---
+    let time = 0;
+    function animate() {
+      requestAnimationFrame(animate);
+
+      updatePhysics();
+      controls.update();
+      composer.render();
+      updateStats();
+
+      // Animate time label
+      time += 0.01 * CONFIG.TIME_SCALE;
+      document.getElementById('stat-time').innerText = `T: ${time.toFixed(2)} y`;
+
+      // Update Shaders
+      bodies.forEach(b => {
+        if (b.mesh.userData.isBlackHole) {
+          b.mesh.userData.disk.material.uniforms.time.value = time;
+          // Rotate disk slightly
+          b.mesh.userData.disk.rotation.z -= 0.02 * CONFIG.TIME_SCALE;
+        }
+      });
+
+      // Update Expansion Visuals
+      if (CONFIG.LAMBDA > 0) {
+        const expansionFactor = 1.0 + (CONFIG.LAMBDA * 10.0 * CONFIG.TIME_SCALE);
+
+        // Stretch Grid
+        metricGrid.scale.multiplyScalar(expansionFactor);
+        if (metricGrid.scale.x > 2.0) metricGrid.scale.setScalar(1.0); // Reset loop
+
+        // Expand Vacuum Particles
+        const positions = vacuumParticles.geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+          positions[i] *= expansionFactor;
+          positions[i + 1] *= expansionFactor;
+          positions[i + 2] *= expansionFactor;
+
+          // Reset if too far
+          if (Math.abs(positions[i]) > 1500) positions[i] *= 0.1;
+          if (Math.abs(positions[i + 1]) > 1500) positions[i + 1] *= 0.1;
+          if (Math.abs(positions[i + 2]) > 1500) positions[i + 2] *= 0.1;
+        }
+        vacuumParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      composer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Boot
+    init();
+    createMetricGrid(); // Add this call
+
+
+  </script>
+</body>
+
+</html>
